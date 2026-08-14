@@ -1,0 +1,36 @@
+/[Ll]ibrary/
+/[Tt]emp/
+/[Oo]bj/
+/[叠]uild/
+/[叠]uilds/
+/[尝]ogs/
+/[𠎁]ememoryCaptures/
+/[𠎁]emoryProfiler/
+
+# ユーザー個人の設定（ウィンドウの配置など）
+/[𠎁]serSettings/
+
+# 開発ツール（Visual Studioなど）が自動生成するファイル
+/.vs/
+/*.csproj
+/*.sln
+/*.suo
+/*.user
+/*.userprefs
+/*.pidb
+/*.svclog
+/*.openeddfdb
+*.bak
+*.bak.meta
+*.apk
+
+
+# Mac用の隠しファイル
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+Icon?
+ehthumbs.db
+Thumbs.db
