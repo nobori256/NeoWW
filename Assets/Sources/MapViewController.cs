@@ -193,7 +193,7 @@ private void Start()
 			_manualModeTimer = 0.0f;
 
 			_currentZoom = Mathf.Clamp((float)(_currentZoom + scroll * _zoomSensitivity * 5.0f), 2.0f, 20.0f);
-			Debug.Log($"[MapViewController LOG] ホイールズーム実行: Scroll={scroll}, NewZoom={_currentZoom}");
+//			Debug.Log($"[MapViewController LOG] ホイールズーム実行: Scroll={scroll}, NewZoom={_currentZoom}");
 			ApplyCamera();
 		}
 
@@ -293,11 +293,11 @@ private void Start()
 			{
 				_isDragging = true;
 				_lastMousePos = mousePos;
-				Debug.Log($"[MapViewController DRAG LOG] ドラッグ判定成功（枠内クリック）: MousePos={mousePos}");
+//				Debug.Log($"[MapViewController DRAG LOG] ドラッグ判定成功（枠内クリック）: MousePos={mousePos}");
 			}
 			else
 			{
-				Debug.LogWarning($"[MapViewController DRAG LOG] ドラッグ失敗: クリック位置 {mousePos} が MapRawImage の枠外です。");
+//				Debug.LogWarning($"[MapViewController DRAG LOG] ドラッグ失敗: クリック位置 {mousePos} が MapRawImage の枠外です。");
 			}
 		}
 
@@ -321,7 +321,7 @@ private void Start()
 				_currentLon += dx;
 				_currentLat -= dy;
 
-				Debug.Log($"[MapViewController DRAG LOG] 地図ドラッグ移動中: Delta={delta}, NewLat={_currentLat}, NewLon={_currentLon}");
+//				Debug.Log($"[MapViewController DRAG LOG] 地図ドラッグ移動中: Delta={delta}, NewLat={_currentLat}, NewLon={_currentLon}");
 
 				ApplyCamera();
 			}
@@ -330,7 +330,7 @@ private void Start()
 		if (Input.GetMouseButtonUp(0) && _isDragging)
 		{
 			_isDragging = false;
-			Debug.Log("[MapViewController DRAG LOG] ドラッグ終了 (マウス離された)");
+//			Debug.Log("[MapViewController DRAG LOG] ドラッグ終了 (マウス離された)");
 		}
 	}
 
@@ -345,7 +345,7 @@ private void Start()
 				_manualModeTimer = 0.0f;
 
 				_currentPitch = Mathf.Clamp((float)(_currentPitch + mouseDeltaY * _pitchSensitivity * 5.0f), 0.0f, 75.0f);
-				Debug.Log($"[MapViewController LOG] 右クリックPitch変更: NewPitch={_currentPitch}");
+//				Debug.Log($"[MapViewController LOG] 右クリックPitch変更: NewPitch={_currentPitch}");
 				ApplyCamera();
 			}
 		}
@@ -426,7 +426,7 @@ private void Start()
 	public void ApplyCamera()
 	{
 		if (_mapView == null) return;
-		Debug.Log($"[MapViewController LOG] SetCamera実行 -> Lat:{_currentLat}, Lon:{_currentLon}, Zoom:{_currentZoom}, Bearing:{_currentBearing}, Pitch:{_currentPitch}");
+//		Debug.Log($"[MapViewController LOG] SetCamera実行 -> Lat:{_currentLat}, Lon:{_currentLon}, Zoom:{_currentZoom}, Bearing:{_currentBearing}, Pitch:{_currentPitch}");
 		_mapView.SetCamera(_currentLat, _currentLon, _currentZoom, _currentBearing, _currentPitch);
 	}
 
