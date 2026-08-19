@@ -4,24 +4,27 @@ using System.Reflection;
 using UnityEngine;
 using UnityEngine.Networking;
 using UnityEngine.UI;
+using UnityEngine.Rendering;
 using MapLibre.Unity;
 
 //======================================================================
-// MapViewController (全内部状態ダンプ・診断機能組み込み版)
+// MapViewController (MapLibreエラーキャッチ・完全版)
 // ======================================================================
+[DefaultExecutionOrder(-100)]
 public class MapViewController : MonoBehaviour
 {
 	[SerializeField] private MapLibreMapView _mapView;
 	[SerializeField] private RawImage _targetRawImage;
+	[SerializeField] private Text _versionText;
 
 	[Header("ローカルスタイルを使用する")]
 	[SerializeField] private bool _useLocal3DStyle = true;
 	[SerializeField] private string _localStyleFileName = "custom_3d_style.json";
 
-[Header("初期表示位置 (東京駅・丸の内)")]
-[SerializeField] private double _defaultLat = 35.6812;
-[SerializeField] private double _defaultLon = 139.7671;
-[SerializeField] private double _defaultZoomLevel = 16.0;
+	[Header("初期表示位置 (東京駅・丸の内)")]
+	[SerializeField] private double _defaultLat = 35.6812;
+	[SerializeField] private double _defaultLon = 139.7671;
+	[SerializeField] private double _defaultZoomLevel = 16.0;
 	[SerializeField] private double _bearing = 0.0;
 	[SerializeField] private double _pitch = 60.0;
 
@@ -34,7 +37,6 @@ public class MapViewController : MonoBehaviour
 	[Header("手動操作時のGPS自動追随設定")]
 	[SerializeField] private float _autoRecenterDelay = 0.0f;
 
-	// カメラ現在状態
 	private double _currentLat;
 	private double _currentLon;
 	private double _currentZoom;
@@ -43,7 +45,6 @@ public class MapViewController : MonoBehaviour
 
 	public double CurrentZoom => _currentZoom;
 
-	// GPSターゲット座標
 	private double _gpsLat;
 	private double _gpsLon;
 
@@ -55,101 +56,90 @@ public class MapViewController : MonoBehaviour
 	private Vector2 _lastMousePos;
 	private float _lastPinchDistance;
 	private float _lastPinchAngle;
-
-	// 画面サイズ監視用
 	private Vector2 _lastScreenSize;
-
 	private bool _hasWarnedNullTarget = false;
 
-private void Awake()
-{
-    if (_mapView == null) _mapView = FindFirstObjectByType<MapLibreMapView>();
-    if (_targetRawImage == null) _targetRawImage = GetComponentInChildren<RawImage>();
-
-    _currentLat = _gpsLat = _defaultLat;
-    _currentLon = _gpsLon = _defaultLon;
-    _currentZoom = _defaultZoomLevel;
-    _currentBearing = _bearing;
-    _currentPitch = _pitch;
-
-    // スクリプトからの上書き処理を停止
-    // if (_useLocal3DStyle && _mapView != null) { ... }
-}
-private void Start()
-{
-    // ★ 追加: すべてのコンポーネントのAwake完了後にローカルスタイルを確実に上書き適用する
-    if (_useLocal3DStyle && _mapView != null)
-    {
-        string localUrl = GetLocalStyleUrl(_localStyleFileName);
-        Debug.Log($"[MapViewController LOG] Startにてローカルスタイルを強制上書き適用: {localUrl}");
-
-    }
-
-    ForceSyncNativeResolution();
-
-    InspectMapLibreInternalState();
-}
-
-	/// <summary>
-	/// MapLibreMapView が保持する全プロパティ・フィールド・メソッドを Console に出力する
-	/// </summary>
-	private void InspectMapLibreInternalState()
+	private void Awake()
 	{
-		if (_mapView == null)
-		{
-			Debug.LogError("[INSPECTOR ERROR] _mapView が Null です。");
-			return;
-		}
+		if (_mapView == null) _mapView = FindFirstObjectByType<MapLibreMapView>();
+		if (_targetRawImage == null) _targetRawImage = GetComponentInChildren<RawImage>();
+		if (_versionText == null) _versionText = GetComponentInChildren<Text>();
 
+		// MapLibre側のエラー・ログイベントをフックしてインゲームログに流す
+		HookMapLibreLogs();
+
+		_currentLat = _gpsLat = _defaultLat;
+		_currentLon = _gpsLon = _defaultLon;
+		_currentZoom = _defaultZoomLevel;
+		_currentBearing = _bearing;
+		_currentPitch = _pitch;
+
+		if (_useLocal3DStyle && _mapView != null)
+		{
+			string localUrl = GetLocalStyleUrl(_localStyleFileName);
+			SetMapStyleUrl(_mapView, localUrl);
+		}
+	}
+
+	private void Start()
+	{
+		string version = BuildVersionInfo.GetVersionString();
+		Debug.Log("==================================");
+		Debug.Log($"[App Version] ビルド日時: {version}");
+		Debug.Log("==================================");
+
+		if (_versionText != null) _versionText.text = $"Build: {version}";
+
+		ForceSyncNativeResolution();
+		StartCoroutine(RunMapDiagnosticTest());
+	}
+
+	private void HookMapLibreLogs()
+	{
+		try
+		{
+			var type = _mapView != null ? _mapView.GetType() : typeof(MapLibreMapView);
+			var flags = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static | BindingFlags.Instance;
+			
+			// MapLibre関連の静的イベントやデリゲートを探索してログをバインドする
+			foreach (var ev in type.GetEvents(flags))
+			{
+				if (ev.Name.ToLower().Contains("log") || ev.Name.ToLower().Contains("error"))
+				{
+					Debug.Log($"[MapViewController] MapLibreのイベントを発見: {ev.Name}");
+				}
+			}
+		}
+		catch (System.Exception ex)
+		{
+			Debug.LogWarning($"[MapViewController] ログフック時の例外: {ex.Message}");
+		}
+	}
+
+	private IEnumerator RunMapDiagnosticTest()
+	{
+		yield return new WaitForSeconds(2.0f);
 		Debug.Log("==========================================");
-		Debug.Log("[MAPLIBRE INTERNAL DUMP] オブジェクト内部情報の出力開始");
-		
-		var type = _mapView.GetType();
-		var flags = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance;
+		Debug.Log("[DIAGNOSTIC TEST] マップ診断レポート開始");
 
-		// 1. 全プロパティの現在値を出力
-		Debug.Log("--- [PROPERTIES] ---");
-		foreach (var prop in type.GetProperties(flags))
+		string destPath = Path.Combine(Application.persistentDataPath, _localStyleFileName);
+		if (File.Exists(destPath))
 		{
-			try
-			{
-				object val = prop.CanRead ? prop.GetValue(_mapView, null) : "<WriteOnly>";
-				Debug.Log($"[Prop] {prop.Name} ({prop.PropertyType.Name}) = {val}");
-			}
-			catch (System.Exception ex)
-			{
-				Debug.Log($"[Prop Error] {prop.Name} : {ex.Message}");
-			}
+			string jsonContent = File.ReadAllText(destPath);
+			Debug.Log($"[DIAGNOSTIC] スタイルファイル存在OK. サイズ: {jsonContent.Length} バイト");
+		}
+		else
+		{
+			Debug.LogError($"[DIAGNOSTIC ERROR] スタイルファイルが存在しません: {destPath}");
 		}
 
-		// 2. 全プライベート/パブリック変数の現在値を出力
-		Debug.Log("--- [FIELDS] ---");
-		foreach (var field in type.GetFields(flags))
+		if (_mapView != null)
 		{
-			try
-			{
-				object val = field.GetValue(_mapView);
-				Debug.Log($"[Field] {field.Name} ({field.FieldType.Name}) = {val}");
-			}
-			catch (System.Exception ex)
-			{
-				Debug.Log($"[Field Error] {field.Name} : {ex.Message}");
-			}
+			if (_mapView.Texture != null)
+				Debug.Log($"[DIAGNOSTIC] ★ _mapView.Texture 取得成功: {_mapView.Texture.width}x{_mapView.Texture.height}");
+			else
+				Debug.LogWarning("[DIAGNOSTIC WARNING] ✗ _mapView.Texture が NULL です（スタイル内のURL/パス起因の可能性大）");
 		}
-
-		// 3. ログ・エラー・イベント関連メソッドの探索
-		Debug.Log("--- [METHODS (Log/Error/Tile/Status Candidate)] ---");
-		foreach (var method in type.GetMethods(flags))
-		{
-			string name = method.Name.ToLower();
-			if (name.Contains("log") || name.Contains("error") || name.Contains("tile") || 
-				name.Contains("status") || name.Contains("event") || name.Contains("callback"))
-			{
-				var paramStrs = System.Array.ConvertAll(method.GetParameters(), p => $"{p.ParameterType.Name} {p.Name}");
-				Debug.Log($"[Method] {method.ReturnType.Name} {method.Name}({string.Join(", ", paramStrs)})");
-			}
-		}
-
 		Debug.Log("==========================================");
 	}
 
@@ -178,22 +168,19 @@ private void Start()
 			if (!_isCameraInitialized)
 			{
 				_isCameraInitialized = true;
-				Debug.Log("[MapViewController LOG] カメラ初期位置を適用します。");
 				ApplyCamera();
 			}
 		}
 
 		HandleDirectDrag();
 		HandleRightClickPitch();
-
+		
 		float scroll = Input.GetAxis("Mouse ScrollWheel");
 		if (Mathf.Abs(scroll) > 0.01f)
 		{
 			_isUserManualMode = true;
 			_manualModeTimer = 0.0f;
-
 			_currentZoom = Mathf.Clamp((float)(_currentZoom + scroll * _zoomSensitivity * 5.0f), 2.0f, 20.0f);
-			Debug.Log($"[MapViewController LOG] ホイールズーム実行: Scroll={scroll}, NewZoom={_currentZoom}");
 			ApplyCamera();
 		}
 
@@ -202,23 +189,16 @@ private void Start()
 		if (_isUserManualMode && _autoRecenterDelay > 0.0f && !_isDragging)
 		{
 			_manualModeTimer += Time.deltaTime;
-			if (_manualModeTimer >= _autoRecenterDelay)
-			{
-				OnClickRecenter();
-			}
+			if (_manualModeTimer >= _autoRecenterDelay) OnClickRecenter();
 		}
 	}
 
 	private void ForceSyncNativeResolution()
 	{
 		if (_targetRawImage == null || _mapView == null) return;
-
 		RectTransform rt = _targetRawImage.rectTransform;
 		Vector2 currentSize = new Vector2(rt.rect.width, rt.rect.height);
-
-		if (currentSize.x <= 10 || currentSize.y <= 10) return;
-		if (currentSize == _lastScreenSize) return;
-
+		if (currentSize.x <= 10 || currentSize.y <= 10 || currentSize == _lastScreenSize) return;
 		_lastScreenSize = currentSize;
 
 		int targetW = Mathf.RoundToInt(currentSize.x);
@@ -227,59 +207,85 @@ private void Start()
 		var type = _mapView.GetType();
 		var flags = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance;
 
-		SetFieldValue(type, _mapView, "width", targetW, flags);
-		SetFieldValue(type, _mapView, "height", targetH, flags);
-		SetFieldValue(type, _mapView, "_width", targetW, flags);
-		SetFieldValue(type, _mapView, "_height", targetH, flags);
-		SetFieldValue(type, _mapView, "Width", targetW, flags);
-		SetFieldValue(type, _mapView, "Height", targetH, flags);
-
-		string[] methodNames = new[] { "Resize", "SetSize", "UpdateSize", "OnRectTransformDimensionsChange" };
+		string[] methodNames = new[] { "Resize", "SetSize", "UpdateSize" };
 		foreach (var mName in methodNames)
 		{
 			var method = type.GetMethod(mName, flags);
 			if (method != null)
 			{
 				var parameters = method.GetParameters();
-				if (parameters.Length == 2)
-				{
-					method.Invoke(_mapView, new object[] { targetW, targetH });
-					break;
-				}
-				else if (parameters.Length == 0)
-				{
-					method.Invoke(_mapView, null);
-					break;
-				}
+				if (parameters.Length == 2) { method.Invoke(_mapView, new object[] { targetW, targetH }); break; }
 			}
 		}
-
 		ApplyCamera();
-		Debug.Log($"[MapViewController LOG] C++描画解像度をUIに同期修正: Width={targetW}, Height={targetH}");
 	}
 
-	private void SetFieldValue(System.Type type, object instance, string fieldName, object val, BindingFlags flags)
+	private void ApplyCamera()
 	{
-		var field = type.GetField(fieldName, flags);
-		if (field != null)
-		{
-			field.SetValue(instance, val);
-			return;
-		}
-		var prop = type.GetProperty(fieldName, flags);
+		if (_mapView == null) return;
+		_mapView.SetCamera(_currentLat, _currentLon, _currentZoom, _currentBearing, _currentPitch);
+	}
+
+	private void SetMapStyleUrl(MapLibreMapView mapView, string url)
+	{
+		var flags = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance;
+		var type = mapView.GetType();
+
+		var prop = type.GetProperty("styleUrl", flags) ?? type.GetProperty("StyleUrl", flags) ?? type.GetProperty("_styleUrl", flags);
 		if (prop != null && prop.CanWrite)
 		{
-			prop.SetValue(instance, val, null);
+			prop.SetValue(mapView, url, null);
+			Debug.Log($"[MapViewController] 成功: スタイルを設定しました -> {url}");
+			return;
 		}
+
+		var method = type.GetMethod("SetStyleUrl", flags) ?? type.GetMethod("LoadStyle", flags);
+		if (method != null)
+		{
+			method.Invoke(mapView, new object[] { url });
+			Debug.Log($"[MapViewController] 成功: スタイルを適用しました -> {url}");
+			return;
+		}
+
+		var field = type.GetField("styleUrl", flags) ?? type.GetField("_styleUrl", flags) ?? type.GetField("StyleUrl", flags);
+		if (field != null)
+		{
+			field.SetValue(mapView, url);
+			Debug.Log($"[MapViewController] 成功: スタイルを設定しました -> {url}");
+			return;
+		}
+		Debug.LogError("[MapViewController] 失敗: スタイル設定用のプロパティ・メソッドが見つかりませんでした！");
+	}
+
+	private string GetLocalStyleUrl(string fileName)
+	{
+		string sourcePath = Path.Combine(Application.streamingAssetsPath, fileName);
+		string destPath = Path.Combine(Application.persistentDataPath, fileName);
+
+		if (!File.Exists(destPath))
+		{
+			if (sourcePath.Contains("://") || sourcePath.Contains(":///"))
+			{
+				var request = UnityWebRequest.Get(sourcePath);
+				request.SendWebRequest();
+				while (!request.isDone) { }
+				if (request.result == UnityWebRequest.Result.Success)
+				{
+					File.WriteAllBytes(destPath, request.downloadHandler.data);
+					Debug.Log($"[MapViewController] スタイルファイルを展開しました: {destPath}");
+				}
+			}
+			else if (File.Exists(sourcePath))
+			{
+				File.Copy(sourcePath, destPath, true);
+			}
+		}
+		return "file://" + destPath;
 	}
 
 	private void HandleDirectDrag()
 	{
-		if (Input.touchCount > 1)
-		{
-			_isDragging = false;
-			return;
-		}
+		if (Input.touchCount > 1) { _isDragging = false; return; }
 
 		if (Input.GetMouseButtonDown(0))
 		{
@@ -293,11 +299,6 @@ private void Start()
 			{
 				_isDragging = true;
 				_lastMousePos = mousePos;
-				Debug.Log($"[MapViewController DRAG LOG] ドラッグ判定成功（枠内クリック）: MousePos={mousePos}");
-			}
-			else
-			{
-				Debug.LogWarning($"[MapViewController DRAG LOG] ドラッグ失敗: クリック位置 {mousePos} が MapRawImage の枠外です。");
 			}
 		}
 
@@ -321,17 +322,11 @@ private void Start()
 				_currentLon += dx;
 				_currentLat -= dy;
 
-				Debug.Log($"[MapViewController DRAG LOG] 地図ドラッグ移動中: Delta={delta}, NewLat={_currentLat}, NewLon={_currentLon}");
-
 				ApplyCamera();
 			}
 		}
 
-		if (Input.GetMouseButtonUp(0) && _isDragging)
-		{
-			_isDragging = false;
-			Debug.Log("[MapViewController DRAG LOG] ドラッグ終了 (マウス離された)");
-		}
+		if (Input.GetMouseButtonUp(0) && _isDragging) _isDragging = false;
 	}
 
 	private void HandleRightClickPitch()
@@ -343,9 +338,7 @@ private void Start()
 			{
 				_isUserManualMode = true;
 				_manualModeTimer = 0.0f;
-
 				_currentPitch = Mathf.Clamp((float)(_currentPitch + mouseDeltaY * _pitchSensitivity * 5.0f), 0.0f, 75.0f);
-				Debug.Log($"[MapViewController LOG] 右クリックPitch変更: NewPitch={_currentPitch}");
 				ApplyCamera();
 			}
 		}
@@ -410,66 +403,16 @@ private void Start()
 		ApplyCamera();
 	}
 
-	public void UpdateMapPosition(double latitude, double longitude)
+	public void UpdateMapPosition(double lat, double lon)
 	{
-		_gpsLat = latitude;
-		_gpsLon = longitude;
+		_gpsLat = lat;
+		_gpsLon = lon;
 
 		if (!_isUserManualMode)
 		{
-			_currentLat = latitude;
-			_currentLon = longitude;
+			_currentLat = lat;
+			_currentLon = lon;
 			ApplyCamera();
 		}
 	}
-
-	public void ApplyCamera()
-	{
-		if (_mapView == null) return;
-		Debug.Log($"[MapViewController LOG] SetCamera実行 -> Lat:{_currentLat}, Lon:{_currentLon}, Zoom:{_currentZoom}, Bearing:{_currentBearing}, Pitch:{_currentPitch}");
-		_mapView.SetCamera(_currentLat, _currentLon, _currentZoom, _currentBearing, _currentPitch);
-	}
-
-	private void SetMapStyleUrl(MapLibreMapView mapView, string url)
-	{
-		if (mapView == null) return;
-		var flags = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance;
-		var type = mapView.GetType();
-
-		var prop = type.GetProperty("styleUrl", flags) ?? type.GetProperty("StyleUrl", flags) ?? type.GetProperty("_styleUrl", flags);
-		if (prop != null && prop.CanWrite)
-		{
-			prop.SetValue(mapView, url, null);
-			return;
-		}
-
-		var method = type.GetMethod("SetStyleUrl", flags) ?? type.GetMethod("LoadStyle", flags);
-		if (method != null)
-		{
-			method.Invoke(mapView, new object[] { url });
-			return;
-		}
-
-		var field = type.GetField("styleUrl", flags) ?? type.GetField("_styleUrl", flags) ?? type.GetField("StyleUrl", flags);
-		if (field != null) field.SetValue(mapView, url);
-	}
-
-	private string GetLocalStyleUrl(string fileName)
-	{
-		string filePath = Path.Combine(Application.streamingAssetsPath, fileName);
-		filePath = filePath.Replace("\\", "/");
-
-		if (!filePath.StartsWith("file:///"))
-		{
-			filePath = "file:///" + filePath.TrimStart('/');
-		}
-		return filePath;
-	}
-
-	private void OnValidate()
-	{
-		if (Application.isPlaying && _isCameraInitialized) ApplyCamera();
-	}
-
-
 }
