@@ -23,7 +23,9 @@
 *.bak
 *.bak.meta
 *.apk
-
+*.log
+/.utmp
+dafault-6000.dwlt
 
 # Mac用の隠しファイル
 .DS_Store
