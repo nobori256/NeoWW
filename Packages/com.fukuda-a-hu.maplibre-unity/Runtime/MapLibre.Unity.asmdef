@@ -1,0 +1,16 @@
+{
+    "name": "MapLibre.Unity",
+    "rootNamespace": "MapLibre.Unity",
+    "references": [
+        "glTFast"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": true,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

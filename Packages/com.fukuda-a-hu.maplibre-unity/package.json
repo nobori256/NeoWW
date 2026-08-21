@@ -1,0 +1,34 @@
+{
+  "name": "com.fukuda-a-hu.maplibre-unity",
+  "version": "0.5.0",
+  "displayName": "MapLibre for Unity",
+  "unity": "2021.3",
+  "description": "Experimental MapLibre Native bindings for Unity (Windows x64 supported; Android and iOS experimental, native binaries not bundled).",
+  "keywords": [
+    "maplibre",
+    "map",
+    "gis",
+    "native-plugin"
+  ],
+  "license": "MIT",
+  "author": {
+    "name": "fukuda-A-HU"
+  },
+  "dependencies": {
+    "com.unity.cloud.gltfast": "6.19.0",
+    "com.unity.cloud.draco": "5.4.3",
+    "com.unity.nuget.newtonsoft-json": "3.2.2"
+  },
+  "samples": [
+    {
+      "displayName": "Basic Map",
+      "description": "Full-screen map rendered onto a RawImage, with mouse-drag panning and scroll-wheel zooming.",
+      "path": "Samples~/BasicMap"
+    },
+    {
+      "displayName": "3D Terrain + PLATEAU (Japan)",
+      "description": "3D terrain from GSI elevation tiles plus PLATEAU 3D city model buildings streamed as 3D Tiles, with the existing 2D map as a mini-map overlay.",
+      "path": "Samples~/PlateauTerrain3D"
+    }
+  ]
+}
