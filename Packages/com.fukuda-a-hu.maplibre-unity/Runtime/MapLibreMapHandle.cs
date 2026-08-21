@@ -96,21 +96,30 @@ namespace MapLibre.Unity
             }
         }
 
-        private void CreateMap(int width, int height, double scaleFactor)
+private void CreateMap(int width, int height, double scaleFactor)
         {
+            int safeWidth = width > 0 ? width : (Screen.width > 0 ? Screen.width : 1024);
+            int safeHeight = height > 0 ? height : (Screen.height > 0 ? Screen.height : 768);
+
             mln_map_options options = NativeMethods.mln_map_options_default();
-            options.width = (uint)width;
-            options.height = (uint)height;
-            options.scale_factor = scaleFactor;
+
+            options.size = (uint)System.Runtime.InteropServices.Marshal.SizeOf<mln_map_options>();
+            options.width = (uint)safeWidth;
+            options.height = (uint)safeHeight;
+            options.scale_factor = scaleFactor > 0.0 ? scaleFactor : 1.0;
             options.map_mode = (uint)mln_map_mode.MLN_MAP_MODE_CONTINUOUS;
 
-            mln_map* map;
+            mln_map* map = null;
             mln_status status = NativeMethods.mln_map_create(_runtime, &options, &map);
+            
+            if (status != mln_status.MLN_STATUS_OK)
+            {
+                Debug.LogWarning($"[MapLibreMapHandle] mln_map_create åxçê: status={status}.");
+            }
+
             ThrowIfNotOk(status, "mln_map_create");
             _map = map;
-        }
-
-        private void AttachTexture(int width, int height, double scaleFactor)
+        }        private void AttachTexture(int width, int height, double scaleFactor)
         {
 #if UNITY_IOS && !UNITY_EDITOR
             // iOS is Metal-only (no OpenGL/EGL context provider), so it attaches via a distinct descriptor/API
