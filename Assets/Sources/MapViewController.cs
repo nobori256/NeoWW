@@ -1,3 +1,4 @@
+using System;
 using System.Collections;
 using System.IO;
 using System.Reflection;
@@ -8,8 +9,8 @@ using UnityEngine.Rendering;
 using MapLibre.Unity;
 
 //======================================================================
-// MapViewController (MapLibreエラーキャッチ・完全版)
-// ======================================================================
+// MapViewController (完全版・スタイルパス修正・全機能網羅・省略なし)
+//======================================================================
 [DefaultExecutionOrder(-100)]
 public class MapViewController : MonoBehaviour
 {
@@ -58,6 +59,7 @@ public class MapViewController : MonoBehaviour
 	private float _lastPinchAngle;
 	private Vector2 _lastScreenSize;
 	private bool _hasWarnedNullTarget = false;
+	private float _elapsedTimeSinceStart = 0.0f;
 
 	private void Awake()
 	{
@@ -65,14 +67,18 @@ public class MapViewController : MonoBehaviour
 		if (_targetRawImage == null) _targetRawImage = GetComponentInChildren<RawImage>();
 		if (_versionText == null) _versionText = GetComponentInChildren<Text>();
 
-		// MapLibre側のエラー・ログイベントをフックしてインゲームログに流す
-		HookMapLibreLogs();
-
 		_currentLat = _gpsLat = _defaultLat;
 		_currentLon = _gpsLon = _defaultLon;
 		_currentZoom = _defaultZoomLevel;
 		_currentBearing = _bearing;
 		_currentPitch = _pitch;
+
+		// 早期の自動初期化を防ぐため、Awakeの時点で強制的に無効化する
+		if (_mapView != null)
+		{
+			_mapView.enabled = false;
+			Debug.Log("[MapViewController] MapLibreMapView の自動初期化をAwakeで一時保留しました。");
+		}
 
 		if (_useLocal3DStyle && _mapView != null)
 		{
@@ -83,68 +89,86 @@ public class MapViewController : MonoBehaviour
 
 	private void Start()
 	{
-		string version = BuildVersionInfo.GetVersionString();
+		string version = GetVersionStringSafe();
 		Debug.Log("==================================");
 		Debug.Log($"[App Version] ビルド日時: {version}");
 		Debug.Log("==================================");
 
 		if (_versionText != null) _versionText.text = $"Build: {version}";
 
-		ForceSyncNativeResolution();
-		StartCoroutine(RunMapDiagnosticTest());
+		// グラフィックスコンテキストとウィンドウが完全に安定するのを待ってから有効化する
+		StartCoroutine(DelayedEnableMapView());
 	}
 
-	private void HookMapLibreLogs()
+	private IEnumerator DelayedEnableMapView()
+	{
+		// ウィンドウとEGLコンテキストの構築完了を数フレーム待機
+		yield return new WaitForSeconds(0.2f);
+		yield return new WaitForEndOfFrame();
+
+		if (_mapView != null)
+		{
+			Debug.Log("[MapViewController] MapLibreMapView を遅延有効化します。");
+			_mapView.enabled = true; // ここで初めてOnEnableが走り、安全に初期化される
+		}
+
+		ForceSyncNativeResolution();
+		StartCoroutine(RunDiagnostics());
+	}
+
+	private string GetVersionStringSafe()
 	{
 		try
 		{
-			var type = _mapView != null ? _mapView.GetType() : typeof(MapLibreMapView);
-			var flags = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static | BindingFlags.Instance;
-			
-			// MapLibre関連の静的イベントやデリゲートを探索してログをバインドする
-			foreach (var ev in type.GetEvents(flags))
+			var type = Type.GetType("BuildVersionInfo");
+			if (type != null)
 			{
-				if (ev.Name.ToLower().Contains("log") || ev.Name.ToLower().Contains("error"))
+				var method = type.GetMethod("GetVersionString", BindingFlags.Public | BindingFlags.Static);
+				if (method != null)
 				{
-					Debug.Log($"[MapViewController] MapLibreのイベントを発見: {ev.Name}");
+					return method.Invoke(null, null) as string ?? "Unknown Build";
 				}
 			}
 		}
-		catch (System.Exception ex)
-		{
-			Debug.LogWarning($"[MapViewController] ログフック時の例外: {ex.Message}");
-		}
+		catch { }
+		return "Unknown Build";
 	}
 
-	private IEnumerator RunMapDiagnosticTest()
+	private IEnumerator RunDiagnostics()
 	{
-		yield return new WaitForSeconds(2.0f);
+		yield return new WaitForSeconds(0.5f);
 		Debug.Log("==========================================");
-		Debug.Log("[DIAGNOSTIC TEST] マップ診断レポート開始");
+		Debug.Log("[Diagnostic] 起動後マップ診断レポート開始");
 
 		string destPath = Path.Combine(Application.persistentDataPath, _localStyleFileName);
 		if (File.Exists(destPath))
 		{
-			string jsonContent = File.ReadAllText(destPath);
-			Debug.Log($"[DIAGNOSTIC] スタイルファイル存在OK. サイズ: {jsonContent.Length} バイト");
+			string json = File.ReadAllText(destPath);
+			Debug.Log($"[Diagnostic] スタイルファイル存在OK: {destPath} ({json.Length} バイト)");
 		}
 		else
 		{
-			Debug.LogError($"[DIAGNOSTIC ERROR] スタイルファイルが存在しません: {destPath}");
+			Debug.LogError($"[Diagnostic ERROR] スタイルファイルが存在しません: {destPath}");
 		}
 
 		if (_mapView != null)
 		{
 			if (_mapView.Texture != null)
-				Debug.Log($"[DIAGNOSTIC] ★ _mapView.Texture 取得成功: {_mapView.Texture.width}x{_mapView.Texture.height}");
+			{
+				Debug.Log($"[Diagnostic] ★ _mapView.Texture 取得成功: {_mapView.Texture.width}x{_mapView.Texture.height}");
+			}
 			else
-				Debug.LogWarning("[DIAGNOSTIC WARNING] ✗ _mapView.Texture が NULL です（スタイル内のURL/パス起因の可能性大）");
+			{
+				Debug.LogWarning("[Diagnostic] ✗ _mapView.Texture がまだ NULL です。");
+			}
 		}
 		Debug.Log("==========================================");
 	}
 
 	private void Update()
 	{
+		_elapsedTimeSinceStart += Time.deltaTime;
+
 		if (_mapView == null || _targetRawImage == null)
 		{
 			if (!_hasWarnedNullTarget)
@@ -162,12 +186,13 @@ public class MapViewController : MonoBehaviour
 			if (_targetRawImage.texture != _mapView.Texture)
 			{
 				_targetRawImage.texture = _mapView.Texture;
-				Debug.Log("[MapViewController LOG] C++描画テクスチャを TargetRawImage にセットしました。");
+				Debug.Log($"[MapViewController LOG] ★ C++描画テクスチャを TargetRawImage にセットしました ({_mapView.Texture.width}x{_mapView.Texture.height})");
 			}
 
 			if (!_isCameraInitialized)
 			{
 				_isCameraInitialized = true;
+				Debug.Log("[MapViewController LOG] カメラ初期位置を適用します。");
 				ApplyCamera();
 			}
 		}
@@ -198,11 +223,16 @@ public class MapViewController : MonoBehaviour
 		if (_targetRawImage == null || _mapView == null) return;
 		RectTransform rt = _targetRawImage.rectTransform;
 		Vector2 currentSize = new Vector2(rt.rect.width, rt.rect.height);
-		if (currentSize.x <= 10 || currentSize.y <= 10 || currentSize == _lastScreenSize) return;
-		_lastScreenSize = currentSize;
+		if (currentSize.x <= 10 || currentSize.y <= 10) return;
+		
+		if (currentSize != _lastScreenSize)
+		{
+			_lastScreenSize = currentSize;
+			Debug.Log($"[ResolutionSync] 解像度検知: width={currentSize.x}, height={currentSize.y}");
+		}
 
-		int targetW = Mathf.RoundToInt(currentSize.x);
-		int targetH = Mathf.RoundToInt(currentSize.y);
+		int targetW = Mathf.Clamp(Mathf.RoundToInt(currentSize.x), 64, 2048);
+		int targetH = Mathf.Clamp(Mathf.RoundToInt(currentSize.y), 64, 2048);
 
 		var type = _mapView.GetType();
 		var flags = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance;
@@ -214,7 +244,11 @@ public class MapViewController : MonoBehaviour
 			if (method != null)
 			{
 				var parameters = method.GetParameters();
-				if (parameters.Length == 2) { method.Invoke(_mapView, new object[] { targetW, targetH }); break; }
+				if (parameters.Length == 2)
+				{
+					method.Invoke(_mapView, new object[] { targetW, targetH });
+					break;
+				}
 			}
 		}
 		ApplyCamera();
@@ -235,7 +269,7 @@ public class MapViewController : MonoBehaviour
 		if (prop != null && prop.CanWrite)
 		{
 			prop.SetValue(mapView, url, null);
-			Debug.Log($"[MapViewController] 成功: スタイルを設定しました -> {url}");
+			Debug.Log($"[StyleApply] 成功: プロパティ経由 -> {url}");
 			return;
 		}
 
@@ -243,7 +277,7 @@ public class MapViewController : MonoBehaviour
 		if (method != null)
 		{
 			method.Invoke(mapView, new object[] { url });
-			Debug.Log($"[MapViewController] 成功: スタイルを適用しました -> {url}");
+			Debug.Log($"[StyleApply] 成功: メソッド経由 -> {url}");
 			return;
 		}
 
@@ -251,10 +285,10 @@ public class MapViewController : MonoBehaviour
 		if (field != null)
 		{
 			field.SetValue(mapView, url);
-			Debug.Log($"[MapViewController] 成功: スタイルを設定しました -> {url}");
+			Debug.Log($"[StyleApply] 成功: フィールド経由 -> {url}");
 			return;
 		}
-		Debug.LogError("[MapViewController] 失敗: スタイル設定用のプロパティ・メソッドが見つかりませんでした！");
+		Debug.LogError("[StyleApply ERROR] スタイル設定用のプロパティ・メソッド・フィールドが見つかりませんでした！");
 	}
 
 	private string GetLocalStyleUrl(string fileName)
@@ -272,15 +306,24 @@ public class MapViewController : MonoBehaviour
 				if (request.result == UnityWebRequest.Result.Success)
 				{
 					File.WriteAllBytes(destPath, request.downloadHandler.data);
-					Debug.Log($"[MapViewController] スタイルファイルを展開しました: {destPath}");
+					Debug.Log($"[StylePath] ネットワーク経由でスタイルを展開しました: {destPath}");
+				}
+				else
+				{
+					Debug.LogError($"[StylePath ERROR] スタイルファイルのダウンロード失敗: {request.error}");
 				}
 			}
 			else if (File.Exists(sourcePath))
 			{
 				File.Copy(sourcePath, destPath, true);
+				Debug.Log($"[StylePath] ローカルファイルをコピーして展開しました: {destPath}");
 			}
 		}
-		return "file://" + destPath;
+
+		// ★ Androidのネイティブ側が file:// スキームでパースエラーを起こすため、プレフィックスなしの絶対パスを返す
+		string finalUrl = destPath;
+		Debug.Log($"[StylePath] 最終スタイルURL (パス修正版): {finalUrl}");
+		return finalUrl;
 	}
 
 	private void HandleDirectDrag()

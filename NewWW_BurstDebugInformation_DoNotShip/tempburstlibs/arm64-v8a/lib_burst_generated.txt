@@ -10,6 +10,7 @@ Library: D:\Factory\NeoWW\Temp\BurstOutput\tempburstlibs\arm64-v8a\lib_burst_gen
 --target-framework=NetFramework
 --generate-link-xml=Temp\burst.link.xml
 --temp-folder=D:\Factory\NeoWW\Temp\Burst
+--debug=Full
 --force-disable-frame-info-registration
 --key-folder=C:/Program Files/Unity/Hub/Editor/6000.0.42f1/Editor/Data/PlaybackEngines/AndroidPlayer
 --decode-folder=D:\Factory\NeoWW\Library\Burst
@@ -127,6 +128,7 @@ Library: D:\Factory\NeoWW\Temp\BurstOutput\tempburstlibs\arm64-v8a\lib_burst_gen
 --target-framework=NetFramework
 --generate-link-xml=Temp\burst.link.xml
 --temp-folder=D:\Factory\NeoWW\Temp\Burst
+--debug=Full
 --force-disable-frame-info-registration
 --key-folder=C:/Program Files/Unity/Hub/Editor/6000.0.42f1/Editor/Data/PlaybackEngines/AndroidPlayer
 --decode-folder=D:\Factory\NeoWW\Library\Burst
@@ -226,6 +228,7 @@ Library: D:\Factory\NeoWW\Temp\BurstOutput\tempburstlibs\arm64-v8a\lib_burst_gen
 --float-mode=Fast
 --generate-link-xml=Temp\burst.link.xml
 --temp-folder=D:\Factory\NeoWW\Temp\Burst
+--debug=Full
 --force-disable-frame-info-registration
 --key-folder=C:/Program Files/Unity/Hub/Editor/6000.0.42f1/Editor/Data/PlaybackEngines/AndroidPlayer
 --decode-folder=D:\Factory\NeoWW\Library\Burst
