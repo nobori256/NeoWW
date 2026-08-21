@@ -1,15 +1,14 @@
 {
   "dependencies": {
     "com.fukuda-a-hu.maplibre-unity": {
-      "version": "https://github.com/fukuda-A-HU/maplibre-unity.git?path=Packages/com.fukuda-a-hu.maplibre-unity",
+      "version": "file:com.fukuda-a-hu.maplibre-unity",
       "depth": 0,
-      "source": "git",
+      "source": "embedded",
       "dependencies": {
         "com.unity.cloud.gltfast": "6.19.0",
         "com.unity.cloud.draco": "5.4.3",
         "com.unity.nuget.newtonsoft-json": "3.2.2"
-      },
-      "hash": "8d21baccf490dd1c3dc1d1e086c1b414e91d88e9"
+      }
     },
     "com.unity.ai.navigation": {
       "version": "2.0.6",
