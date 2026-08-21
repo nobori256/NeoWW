@@ -1,6 +1,6 @@
 {
   "dependencies": {
-    "com.fukuda-a-hu.maplibre-unity": "https://github.com/fukuda-A-HU/maplibre-unity.git?path=Packages/com.fukuda-a-hu.maplibre-unity",
+	"com.fukuda-a-hu.maplibre-unity": "file:com.maplibre.unity",
     "com.unity.ai.navigation": "2.0.6",
     "com.unity.collab-proxy": "2.13.6",
     "com.unity.ide.rider": "3.0.31",

@@ -17,13 +17,16 @@ namespace MapLibre.Unity
 
         private void OnEnable()
         {
-            if (_width <= 0 || _height <= 0)
+            var rectTransform = GetComponent<RectTransform>();
+            if (rectTransform != null)
             {
-                var rectTransform = GetComponent<RectTransform>();
                 var rect = rectTransform.rect;
-                _width = Mathf.Max(1, Mathf.RoundToInt(rect.width));
-                _height = Mathf.Max(1, Mathf.RoundToInt(rect.height));
+                if (rect.width > 0) _width = Mathf.RoundToInt(rect.width);
+                if (rect.height > 0) _height = Mathf.RoundToInt(rect.height);
             }
+
+            if (_width <= 0) _width = 1024;
+            if (_height <= 0) _height = 768;
 
             try
             {
