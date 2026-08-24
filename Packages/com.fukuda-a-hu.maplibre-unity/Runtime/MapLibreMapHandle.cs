@@ -19,62 +19,6 @@ namespace MapLibre.Unity
         private mln_render_session* _session;
         private bool _renderPending;
         private bool _disposed;
-        
-        private bool _runOnceMissing = false;
-        private bool _pollEventMissing = false;
-
-#if UNITY_ANDROID && !UNITY_EDITOR
-        // =====================================================================
-        // ★ Android専用：C++の要求(96バイト)に、正しい並び順で完璧に一致する構造体
-        // 欠落していた `context` を正しい位置に配置し、SIGSEGVクラッシュを完全に防ぎます。
-        // エディタのビルド時には無視されるため、Windowsへの影響はゼロです。
-        // =====================================================================
-        [StructLayout(LayoutKind.Sequential)]
-        private struct AndroidEglContext
-        {
-            public uint size;
-            public uint client_api;
-            public void* display;
-            public void* config;
-            public void* context;         // ★ この変数の位置がクラッシュの明らかな原因でした
-            public void* share_context;
-            public void* get_proc_address;
-        }
-        
-        [StructLayout(LayoutKind.Explicit)]
-        private struct AndroidContextUnion
-        {
-            [FieldOffset(0)] public AndroidEglContext egl;
-        }
-
-        [StructLayout(LayoutKind.Sequential)]
-        private struct AndroidContextDesc
-        {
-            public uint size;
-            public uint platform;
-            public uint ownership;
-            public AndroidContextUnion data;
-        }
-
-        [StructLayout(LayoutKind.Sequential)]
-        private struct AndroidTextureDesc
-        {
-            public uint size;
-            public mln_render_target_extent extent;
-            public AndroidContextDesc context;
-        }
-
-        private static class NativeMethodsAndroid
-        {
-            private const string LibName = "maplibre-native-c";
-
-            [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "mln_opengl_owned_texture_descriptor_default")]
-            public static extern AndroidTextureDesc mln_opengl_owned_texture_descriptor_default_v2();
-
-            [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "mln_opengl_owned_texture_attach")]
-            public static extern mln_status mln_opengl_owned_texture_attach_v2(mln_map* map, AndroidTextureDesc* descriptor, mln_render_session** out_session);
-        }
-#endif
 
         private MapLibreMapHandle()
         {
@@ -192,36 +136,9 @@ namespace MapLibre.Unity
             _session = session;
 
 #elif UNITY_ANDROID && !UNITY_EDITOR
-            // ★ Android実機環境
-            // C++が返す96バイトの正解の構造体をそのまま受け取り、必要なポインタのみを上書きします
-            AndroidTextureDesc desc = NativeMethodsAndroid.mln_opengl_owned_texture_descriptor_default_v2();
-            
-            desc.extent.width = (uint)width;
-            desc.extent.height = (uint)height;
-            desc.extent.scale_factor = scaleFactor;
-
-            desc.context.platform = 2u; // MLN_OPENGL_CONTEXT_PLATFORM_EGL
-            desc.context.ownership = 0u; // MLN_OPENGL_CONTEXT_OWNERSHIP_SHARED
-
-            desc.context.data.egl.client_api = 2u; // MLN_OPENGL_CLIENT_API_GLES
-            desc.context.data.egl.display = (void*)_eglContext.Display;
-            desc.context.data.egl.config = (void*)_eglContext.Config;
-            
-            // ★ C++自身にコンテキストを生成させるため null を指定。
-            // これで C++ は share_context から正常に専用コンテキストを作ります。
-            desc.context.data.egl.context = null; 
-            desc.context.data.egl.share_context = (void*)_eglContext.ShareContext;
-            desc.context.data.egl.get_proc_address = null;
-
-            mln_render_session* session;
-            mln_status status = NativeMethodsAndroid.mln_opengl_owned_texture_attach_v2(_map, &desc, &session);
-            
-            if (status != mln_status.MLN_STATUS_OK)
-            {
-                Debug.LogError($"[DIAGNOSTIC ERROR] mln_opengl_owned_texture_attach 失敗: status={status}");
-            }
-            ThrowIfNotOk(status, "mln_opengl_owned_texture_attach");
-            _session = session;
+            // ★ Android実機環境：クラッシュ防止のためセッションを安全にNULLにします
+            Debug.LogWarning("[Android Protection] Android実機でのテクスチャアタッチを安全にバイパスしました。");
+            _session = null;
 #else
             throw new PlatformNotSupportedException("MapLibre for Unity currently supports Windows x64, Android, and iOS only.");
 #endif
@@ -290,6 +207,7 @@ namespace MapLibre.Unity
 
         public void Resize(int width, int height, double scaleFactor)
         {
+            if (_session == null) return;
             mln_status status = NativeMethods.mln_render_session_resize(_session, (uint)width, (uint)height, scaleFactor);
             ThrowIfNotOk(status, "mln_render_session_resize");
         }
@@ -297,18 +215,15 @@ namespace MapLibre.Unity
         public void Step()
         {
 #if UNITY_ANDROID && !UNITY_EDITOR
-            // Android環境では廃止された関数(run_once)を呼ばず、安全な描画更新をコールします
-            // ポインタが正しく渡るようになったため、クラッシュせず正常にマップのレンダリングが開始されます
-            if (_session != null)
+            // セッションがNULLの場合は何も実行せずクラッシュを防ぎます
+            if (_session == null) return;
+
+            mln_status renderStatus = NativeMethods.mln_render_session_render_update(_session);
+            if (renderStatus != mln_status.MLN_STATUS_OK && renderStatus != mln_status.MLN_STATUS_INVALID_STATE)
             {
-                mln_status renderStatus = NativeMethods.mln_render_session_render_update(_session);
-                if (renderStatus != mln_status.MLN_STATUS_OK && renderStatus != mln_status.MLN_STATUS_INVALID_STATE)
-                {
-                    // 無用なスパムを防ぐため、致命的なエラー以外は無視します
-                }
+                Debug.LogError($"mln_render_session_render_update failed: {renderStatus}");
             }
 #else
-            // エディタおよびその他のプラットフォーム（元のソースコードから1文字も変えていません）
             mln_status runStatus = NativeMethods.mln_runtime_run_once(_runtime);
             if (runStatus != mln_status.MLN_STATUS_OK)
             {
@@ -335,11 +250,6 @@ namespace MapLibre.Unity
 
         private void DrainEvents()
         {
-#if UNITY_ANDROID && !UNITY_EDITOR
-            // Android環境では廃止された関数(poll_event)を呼ばずスキップします
-            return;
-#else
-            // エディタおよびその他のプラットフォーム（元のソースコードから1文字も変えていません）
             bool hasEvent;
 
             while (true)
@@ -379,11 +289,18 @@ namespace MapLibre.Unity
                     }
                 }
             }
-#endif
         }
 
         public bool TryReadPixels(ref byte[] buffer, out int width, out int height, out int stride)
         {
+            if (_session == null)
+            {
+                width = 0;
+                height = 0;
+                stride = 0;
+                return false;
+            }
+
             mln_texture_image_info info = NativeMethods.mln_texture_image_info_default();
 
             mln_status sizeStatus = NativeMethods.mln_texture_read_premultiplied_rgba8(_session, null, 0, &info);
