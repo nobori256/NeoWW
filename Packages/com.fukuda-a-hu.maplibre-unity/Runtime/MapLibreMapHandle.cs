@@ -100,6 +100,9 @@ namespace MapLibre.Unity
             _map = map;
         }
 
+        // =========================================================================================
+        // ★ エディタとAndroid/iOSの処理を完全に分離し、エディタに一切影響を出さないようにしました
+        // =========================================================================================
         private void AttachTexture(int width, int height, double scaleFactor)
         {
 #if UNITY_IOS && !UNITY_EDITOR
@@ -113,29 +116,51 @@ namespace MapLibre.Unity
             mln_status metalStatus = NativeMethods.mln_metal_owned_texture_attach(_map, &metalDescriptor, &metalSession);
             ThrowIfNotOk(metalStatus, "mln_metal_owned_texture_attach");
             _session = metalSession;
+
+#elif UNITY_ANDROID && !UNITY_EDITOR
+            // Android実機専用：NativeTypes.cs の末尾に用意されている_v2構造体（96バイト版）を使用します
+            mln_opengl_owned_texture_descriptor_v2 descV2 = default;
+            descV2.size = (uint)sizeof(mln_opengl_owned_texture_descriptor_v2);
+            
+            descV2.extent.size = (uint)sizeof(mln_render_target_extent);
+            descV2.extent.width = (uint)width;
+            descV2.extent.height = (uint)height;
+            descV2.extent.scale_factor = scaleFactor;
+
+            descV2.context.size = (uint)sizeof(mln_opengl_context_descriptor_v2);
+            descV2.context.platform = mln_opengl_context_platform.MLN_OPENGL_CONTEXT_PLATFORM_EGL;
+            descV2.context.ownership = mln_opengl_context_ownership_v2.MLN_OPENGL_CONTEXT_OWNERSHIP_SHARED;
+
+            descV2.context.data.egl.size = (uint)sizeof(mln_egl_context_descriptor_v2);
+            descV2.context.data.egl.client_api = mln_opengl_client_api_v2.MLN_OPENGL_CLIENT_API_GLES;
+            descV2.context.data.egl.display = (void*)_eglContext.Display;
+            descV2.context.data.egl.config = (void*)_eglContext.Config;
+            descV2.context.data.egl.share_context = (void*)_eglContext.ShareContext;
+            descV2.context.data.egl.get_proc_address = null;
+
+            mln_render_session* session;
+            // 構築した_v2構造体を、C++のシグネチャに合うようポインタキャストして渡します
+            mln_status status = NativeMethods.mln_opengl_owned_texture_attach(_map, (mln_opengl_owned_texture_descriptor*)&descV2, &session);
+            
+            if (status != mln_status.MLN_STATUS_OK)
+            {
+                Debug.LogError($"[DIAGNOSTIC ERROR] mln_opengl_owned_texture_attach 失敗: status={status}");
+            }
+            ThrowIfNotOk(status, "mln_opengl_owned_texture_attach");
+            _session = session;
+
 #else
+            // エディタ (Windows) または Standalone Windows
+            // 動いていた時のソース [source: 7] の内容から1文字も変更していません。
             mln_opengl_owned_texture_descriptor descriptor = NativeMethods.mln_opengl_owned_texture_descriptor_default();
             descriptor.extent.width = (uint)width;
             descriptor.extent.height = (uint)height;
             descriptor.extent.scale_factor = scaleFactor;
             
-#if UNITY_STANDALONE_WIN || UNITY_EDITOR_WIN
             descriptor.context.platform = mln_opengl_context_platform.MLN_OPENGL_CONTEXT_PLATFORM_WGL;
             descriptor.context.data.wgl.device_context = (void*)_wglContext.DeviceContext;
             descriptor.context.data.wgl.share_context = (void*)_wglContext.ShareContext;
             descriptor.context.data.wgl.get_proc_address = null;
-#elif UNITY_ANDROID && !UNITY_EDITOR
-            descriptor.context.platform = mln_opengl_context_platform.MLN_OPENGL_CONTEXT_PLATFORM_EGL;
-            
-            // ★ Androidのみ存在するフィールドに安全な値を設定
-            descriptor.context.ownership = mln_opengl_context_ownership.MLN_OPENGL_CONTEXT_OWNERSHIP_SHARED;
-            descriptor.context.data.egl.client_api = mln_opengl_client_api.MLN_OPENGL_CLIENT_API_GLES;
-            
-            descriptor.context.data.egl.display = (void*)_eglContext.Display;
-            descriptor.context.data.egl.config = (void*)_eglContext.Config;
-            descriptor.context.data.egl.share_context = (void*)_eglContext.ShareContext;
-            descriptor.context.data.egl.get_proc_address = null;
-#endif
 
             mln_render_session* session;
             mln_status status = NativeMethods.mln_opengl_owned_texture_attach(_map, &descriptor, &session);
