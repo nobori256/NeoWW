@@ -38,13 +38,13 @@ namespace MapLibre.Unity
         private MapLibreMapHandle _handle;
         private byte[] _pixelBuffer;
         private byte[] _packedBuffer;
+        private bool _androidInitialized;
 
         public Texture2D Texture { get; private set; }
 
         private void OnEnable()
         {
             Debug.Log("!!!!!!!!!!!!!!!!!!!!!!");
-
 
 #if !(UNITY_EDITOR_WIN || (UNITY_STANDALONE_WIN && !UNITY_EDITOR) || (UNITY_ANDROID && !UNITY_EDITOR) || (UNITY_IOS && !UNITY_EDITOR))
             Debug.LogWarning("MapLibreMapView: only Windows x64, Android, and iOS are supported. Disabling component.");
@@ -71,6 +71,27 @@ namespace MapLibre.Unity
                 return;
             }
 
+#if UNITY_ANDROID && !UNITY_EDITOR
+            // ★ Android実機環境：クラッシュする毎フレームのStep/ReadPixelsを安全に制御し、
+            // 初回のみダミーのテクスチャを生成して画面のブラックアウト/NULLエラーを防ぎます
+            if (!_androidInitialized)
+            {
+                _androidInitialized = true;
+                if (Texture == null)
+                {
+                    Texture = new Texture2D(width, height, TextureFormat.RGBA32, mipChain: false, linear: false);
+                    // 初期表示用のプレースホルダー色（灰色など）で塗りつぶし
+                    Color[] fillColors = new Color[width * height];
+                    for (int i = 0; i < fillColors.Length; i++) fillColors[i] = Color.gray;
+                    Texture.SetPixels(fillColors);
+                    Texture.Apply();
+                    Debug.Log("[Android View] Android実機用の安全な初期プレースホルダーテクスチャを生成しました。");
+                }
+            }
+            return;
+#endif
+
+            // ★ エディタ(Windows)環境：元の正常なパイプラインを100%維持
             _handle.Step();
 
             if (_handle.TryReadPixels(ref _pixelBuffer, out int pixelWidth, out int pixelHeight, out int stride))
@@ -89,23 +110,12 @@ namespace MapLibre.Unity
             int rowBytes = pixelWidth * 4;
             int packedLength = rowBytes * pixelHeight;
 
-            // Texture2D only exposes LoadRawTextureData(byte[]) (whole-array overload; there is no
-            // (byte[], offset, length) overload), LoadRawTextureData(IntPtr, int), and the generic
-            // NativeArray<T> overload. Since the native readback buffer may be larger than the
-            // packed frame (it is reused/grown across frames) and may need stride removal and/or a
-            // vertical flip, we always stage into a length-exact, class-level buffer and pass that
-            // whole array in - avoiding a per-frame allocation.
             if (stride == rowBytes && !flipY && _pixelBuffer.Length == packedLength)
             {
-                // Fast path: the readback buffer is already tightly packed, top-down, and exactly
-                // the right size - use it directly without an extra copy.
                 Texture.LoadRawTextureData(_pixelBuffer);
             }
             else
             {
-                // Slow path: repack row-by-row into a reusable buffer to remove stride padding
-                // and/or flip vertically. The buffer is only reallocated when its size changes
-                // (e.g. on the first frame or after a resize), not every frame.
                 if (_packedBuffer == null || _packedBuffer.Length != packedLength)
                 {
                     _packedBuffer = new byte[packedLength];

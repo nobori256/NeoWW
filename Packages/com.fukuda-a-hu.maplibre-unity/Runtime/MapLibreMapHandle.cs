@@ -19,6 +19,7 @@ namespace MapLibre.Unity
         private mln_render_session* _session;
         private bool _renderPending;
         private bool _disposed;
+        private bool _androidReadTested; // Androidでのテストを1回だけ実行するためのフラグ
 
 #if UNITY_ANDROID && !UNITY_EDITOR
         private static class NativeMethodsAndroid
@@ -145,8 +146,27 @@ namespace MapLibre.Unity
             _session = session;
 
 #elif UNITY_ANDROID && !UNITY_EDITOR
-            // ★ Android実機環境：セッション起因のクラッシュを完全に防ぐため、実機ではセッションを生成させません
-            _session = null;
+            // ★ Android実機環境：アタッチ成功したセッションを安全に保持し、後ほど安全にプローブします
+            mln_opengl_owned_texture_descriptor_v2 descriptorV2 = NativeMethodsAndroid.mln_opengl_owned_texture_descriptor_default_v2();
+            
+            descriptorV2.extent.width = (uint)width;
+            descriptorV2.extent.height = (uint)height;
+            descriptorV2.extent.scale_factor = scaleFactor;
+
+            descriptorV2.context.platform = mln_opengl_context_platform.MLN_OPENGL_CONTEXT_PLATFORM_EGL;
+            descriptorV2.context.ownership = mln_opengl_context_ownership_v2.MLN_OPENGL_CONTEXT_OWNERSHIP_SHARED;
+
+            descriptorV2.context.data.egl.client_api = mln_opengl_client_api_v2.MLN_OPENGL_CLIENT_API_GLES;
+            descriptorV2.context.data.egl.display = (void*)_eglContext.Display;
+            descriptorV2.context.data.egl.config = (void*)_eglContext.Config;
+            descriptorV2.context.data.egl.share_context = (void*)_eglContext.ShareContext;
+            descriptorV2.context.data.egl.get_proc_address = null;
+
+            mln_render_session* session = null;
+            mln_status attachStatus = NativeMethodsAndroid.mln_opengl_owned_texture_attach_v2(_map, &descriptorV2, &session);
+            Debug.Log($"[ANDROID SAFE TEST] attach status={attachStatus}, session=0x{(IntPtr)session:X}");
+            
+            _session = session; // セッションを保持しますが、render_updateは呼び出しません
 #else
             throw new PlatformNotSupportedException("MapLibre for Unity currently supports Windows x64, Android, and iOS only.");
 #endif
@@ -223,6 +243,25 @@ namespace MapLibre.Unity
         public void Step()
         {
 #if UNITY_ANDROID && !UNITY_EDITOR
+            // Android実機での安全テスト：クラッシュする render_update は呼ばず、
+            // 初回のみ安全に TryReadPixels を試してセッションの生存状態をログ出力します
+            if (_session != null && !_androidReadTested)
+            {
+                _androidReadTested = true;
+                try
+                {
+                    byte[] dummyBuf = null;
+                    int w, h, s;
+                    bool result = TryReadPixels(ref dummyBuf, out w, out h, out s);
+                    Debug.Log(result ? 
+                        $"[ANDROID SAFE TEST] ✓ TryReadPixels 成功！ 画面サイズ: {w}x{h}, stride: {s}, byteLength: {dummyBuf?.Length}" : 
+                        "[ANDROID SAFE TEST] ✗ TryReadPixels はまだデータを持っていません（INVALID_STATE）。");
+                }
+                catch (Exception ex)
+                {
+                    Debug.LogError($"[ANDROID SAFE TEST] 例外発生: {ex.Message}");
+                }
+            }
             return;
 #else
             mln_status runStatus = NativeMethods.mln_runtime_run_once(_runtime);
