@@ -1,28 +1,10 @@
 using System.Runtime.InteropServices;
 
-// This file contains hand-ported struct/enum definitions mirroring the generated `*.g.cs` bindings that ship with
-// maplibre-native-ffi's C# sample (base.g.cs, runtime.g.cs, map.g.cs, camera.g.cs, render_target.g.cs, texture.g.cs,
-// render_session.g.cs, logging.g.cs). Only the subset needed by this Unity plugin (v0.1 MVP) is included.
-//
-// Opaque native handles (mln_runtime, mln_map, mln_render_session) are represented as empty structs and always
-// referenced through pointers, matching the upstream binding style.
 namespace MapLibre.Unity.Native
 {
-    // ---- Opaque handles -----------------------------------------------------------------------------------------
-
-    internal unsafe partial struct mln_runtime
-    {
-    }
-
-    internal unsafe partial struct mln_map
-    {
-    }
-
-    internal unsafe partial struct mln_render_session
-    {
-    }
-
-    // ---- base.h ---------------------------------------------------------------------------------------------------
+    internal unsafe partial struct mln_runtime { }
+    internal unsafe partial struct mln_map { }
+    internal unsafe partial struct mln_render_session { }
 
     internal enum mln_status : int
     {
@@ -41,8 +23,6 @@ namespace MapLibre.Unity.Native
         MLN_RENDER_BACKEND_FLAG_OPENGL = 1u << 2,
     }
 
-    // ---- runtime.h ------------------------------------------------------------------------------------------------
-
     internal enum mln_runtime_option_flag : uint
     {
         MLN_RUNTIME_OPTION_MAXIMUM_CACHE_SIZE = 1u << 0,
@@ -51,9 +31,9 @@ namespace MapLibre.Unity.Native
     internal unsafe partial struct mln_runtime_options
     {
         public uint size;
-        public uint flags; // mln_runtime_option_flag
-        public sbyte* asset_path; // const char*
-        public sbyte* cache_path; // const char*
+        public uint flags; 
+        public sbyte* asset_path; 
+        public sbyte* cache_path; 
         public ulong maximum_cache_size;
     }
 
@@ -121,9 +101,9 @@ namespace MapLibre.Unity.Native
     internal partial struct mln_runtime_event_render_frame
     {
         public uint size;
-        public uint mode; // mln_render_mode
-        public byte needs_repaint; // bool -> 1 byte
-        public byte placement_changed; // bool -> 1 byte
+        public uint mode; 
+        public byte needs_repaint; 
+        public byte placement_changed; 
         public mln_rendering_stats stats;
     }
 
@@ -133,23 +113,19 @@ namespace MapLibre.Unity.Native
         public uint mode;
     }
 
-    // The payload is a borrowed `const void*` selected by payload_type; the event struct itself has a fixed layout
-    // (the union lives behind the pointer, not inline).
     internal unsafe partial struct mln_runtime_event
     {
         public uint size;
-        public uint type; // mln_runtime_event_type
-        public uint source_type; // mln_runtime_event_source_type
-        public void* source; // map-originated: mln_map*, runtime-originated: mln_runtime*
+        public uint type; 
+        public uint source_type; 
+        public void* source; 
         public int code;
-        public uint payload_type; // mln_runtime_event_payload_type
-        public void* payload; // const void*, cast according to payload_type. May be NULL.
+        public uint payload_type; 
+        public void* payload; 
         public nuint payload_size;
-        public sbyte* message; // const char*, may be NULL
+        public sbyte* message; 
         public nuint message_size;
     }
-
-    // ---- map.h ----------------------------------------------------------------------------------------------------
 
     internal enum mln_map_mode : uint
     {
@@ -164,7 +140,7 @@ namespace MapLibre.Unity.Native
         public uint width;
         public uint height;
         public double scale_factor;
-        public uint map_mode; // mln_map_mode
+        public uint map_mode; 
     }
 
     internal partial struct mln_screen_point
@@ -187,8 +163,6 @@ namespace MapLibre.Unity.Native
         public double longitude;
     }
 
-    // ---- camera.h -------------------------------------------------------------------------------------------------
-
     internal enum mln_camera_option_field : uint
     {
         MLN_CAMERA_OPTION_CENTER = 1u << 0,
@@ -205,7 +179,7 @@ namespace MapLibre.Unity.Native
     internal partial struct mln_camera_options
     {
         public uint size;
-        public uint fields; // bitwise-OR of mln_camera_option_field
+        public uint fields; 
         public double latitude;
         public double longitude;
         public double center_altitude;
@@ -218,14 +192,12 @@ namespace MapLibre.Unity.Native
         public double field_of_view;
     }
 
-    // ---- render_target.h --------------------------------------------------------------------------------------------
-
     internal partial struct mln_render_target_extent
     {
         public uint size;
-        public uint width; // logical UI pixels
-        public uint height; // logical UI pixels
-        public double scale_factor; // UI -> device pixel ratio
+        public uint width; 
+        public uint height; 
+        public double scale_factor; 
     }
 
     internal enum mln_opengl_context_provider_flag : uint
@@ -244,9 +216,9 @@ namespace MapLibre.Unity.Native
     internal unsafe partial struct mln_wgl_context_descriptor
     {
         public uint size;
-        public void* device_context; // HDC (borrowed)
-        public void* share_context; // HGLRC (borrowed); joins this share group
-        public void* get_proc_address; // optional wglGetProcAddress-compatible function pointer, may be null
+        public void* device_context; 
+        public void* share_context; 
+        public void* get_proc_address; 
     }
 
     internal unsafe partial struct mln_egl_context_descriptor
@@ -275,40 +247,34 @@ namespace MapLibre.Unity.Native
         }
     }
 
-    // iOS is Metal-only (no OpenGL/EGL path), so this descriptor is separate from mln_opengl_context_descriptor
-    // rather than another union member of it.
     internal unsafe partial struct mln_metal_context_descriptor
     {
         public uint size;
-        public void* device; // id<MTLDevice> (borrowed; retained by the native side when required)
+        public void* device; 
     }
-
-    // ---- texture.h --------------------------------------------------------------------------------------------------
 
     internal partial struct mln_opengl_owned_texture_descriptor
     {
         public uint size;
         public mln_render_target_extent extent;
-        public mln_opengl_context_descriptor context; // platform = WGL, data.wgl populated
+        public mln_opengl_context_descriptor context; 
     }
 
     internal partial struct mln_metal_owned_texture_descriptor
     {
         public uint size;
         public mln_render_target_extent extent;
-        public mln_metal_context_descriptor context; // device populated on iOS
+        public mln_metal_context_descriptor context; 
     }
 
     internal partial struct mln_texture_image_info
     {
         public uint size;
-        public uint width; // physical pixels
-        public uint height; // physical pixels
-        public uint stride; // bytes per row
-        public nuint byte_length; // required buffer size in bytes
+        public uint width; 
+        public uint height; 
+        public uint stride; 
+        public nuint byte_length; 
     }
-
-    // ---- logging.h --------------------------------------------------------------------------------------------------
 
     internal enum mln_log_severity : uint
     {
@@ -320,5 +286,70 @@ namespace MapLibre.Unity.Native
     internal enum mln_log_event : uint
     {
         MLN_LOG_EVENT_GENERAL = 0,
+    }
+
+    // =========================================================================================
+    // ★ Android用V2構造体（96バイト版）
+    // Unityのコンパイルエラーを防ぐため、元の構造体とは完全に別名（_v2）で定義します
+    // =========================================================================================
+
+    internal enum mln_opengl_context_ownership_v2 : uint
+    {
+        MLN_OPENGL_CONTEXT_OWNERSHIP_SHARED = 0u,
+        MLN_OPENGL_CONTEXT_OWNERSHIP_DEDICATED = 1u,
+    }
+
+    internal enum mln_opengl_client_api_v2 : uint
+    {
+        MLN_OPENGL_CLIENT_API_UNSPECIFIED = 0u,
+        MLN_OPENGL_CLIENT_API_GL = 1u,
+        MLN_OPENGL_CLIENT_API_GLES = 2u,
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal unsafe partial struct mln_wgl_context_descriptor_v2
+    {
+        public uint size;
+        public void* device_context;
+        public void* share_context;
+        public void* get_proc_address;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal unsafe partial struct mln_egl_context_descriptor_v2
+    {
+        public uint size;
+        public mln_opengl_client_api_v2 client_api;
+        public void* display;
+        public void* config;
+        public void* share_context;
+        public void* get_proc_address;
+    }
+
+    [StructLayout(LayoutKind.Explicit)]
+    internal unsafe partial struct _data_e__Union_v2
+    {
+        [FieldOffset(0)]
+        public mln_wgl_context_descriptor_v2 wgl;
+
+        [FieldOffset(0)]
+        public mln_egl_context_descriptor_v2 egl;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal partial struct mln_opengl_context_descriptor_v2
+    {
+        public uint size;
+        public mln_opengl_context_platform platform;
+        public mln_opengl_context_ownership_v2 ownership;
+        public _data_e__Union_v2 data;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal partial struct mln_opengl_owned_texture_descriptor_v2
+    {
+        public uint size;
+        public mln_render_target_extent extent;
+        public mln_opengl_context_descriptor_v2 context;
     }
 }

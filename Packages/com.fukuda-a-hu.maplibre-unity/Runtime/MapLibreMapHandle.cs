@@ -3,22 +3,10 @@ using System.Runtime.InteropServices;
 using MapLibre.Unity.Native;
 using UnityEngine;
 
-// Unity-independent core wrapping the mln_* native C API lifecycle (runtime -> map -> WGL/EGL-shared render
-// session on Windows/Android, or a Metal-owned texture session on iOS). UnityEngine.Debug is used for logging
-// for simplicity; this class otherwise has no dependency on MonoBehaviour or any other Unity engine object.
-//
-// This type is public (rather than internal) specifically so that Assets/Editor/MapLibreSmokeTest.cs - which
-// lives in a separate assembly from this package's Runtime asmdef - can instantiate it directly without a
-// MonoBehaviour, per the smoke test's design (no scene/GameObject required).
 namespace MapLibre.Unity
 {
     public sealed unsafe class MapLibreMapHandle : IDisposable
     {
-        // Design decision: creation/initialization failures (Create, SetStyleUrl, SetCamera, Resize) throw, since
-        // they indicate a programming error or an unrecoverable native failure that the caller must react to.
-        // Per-frame operations (Step) are logged instead of thrown, since a transient failure there should not
-        // crash the render loop - the caller just tries again next frame.
-
 #if UNITY_STANDALONE_WIN || UNITY_EDITOR_WIN
         private WglSharedContext _wglContext;
 #elif UNITY_ANDROID && !UNITY_EDITOR
@@ -70,7 +58,6 @@ namespace MapLibre.Unity
             }
             catch
             {
-                // Unwind whatever was partially constructed, in reverse order, before propagating the exception.
                 handle.Dispose();
                 throw;
             }
@@ -80,7 +67,6 @@ namespace MapLibre.Unity
         {
             mln_runtime_options options = NativeMethods.mln_runtime_options_default();
 
-            // ":memory:" makes MapLibre use an in-memory tile cache instead of writing a cache DB to disk.
             byte[] cachePathUtf8 = System.Text.Encoding.UTF8.GetBytes(":memory:\0");
             fixed (byte* cachePathPtr = cachePathUtf8)
             {
@@ -96,14 +82,13 @@ namespace MapLibre.Unity
             }
         }
 
-private void CreateMap(int width, int height, double scaleFactor)
+		private void CreateMap(int width, int height, double scaleFactor)
         {
             int safeWidth = width > 0 ? width : (Screen.width > 0 ? Screen.width : 1024);
             int safeHeight = height > 0 ? height : (Screen.height > 0 ? Screen.height : 768);
 
             mln_map_options options = NativeMethods.mln_map_options_default();
 
-            options.size = (uint)System.Runtime.InteropServices.Marshal.SizeOf<mln_map_options>();
             options.width = (uint)safeWidth;
             options.height = (uint)safeHeight;
             options.scale_factor = scaleFactor > 0.0 ? scaleFactor : 1.0;
@@ -111,19 +96,13 @@ private void CreateMap(int width, int height, double scaleFactor)
 
             mln_map* map = null;
             mln_status status = NativeMethods.mln_map_create(_runtime, &options, &map);
-            
-            if (status != mln_status.MLN_STATUS_OK)
-            {
-                Debug.LogWarning($"[MapLibreMapHandle] mln_map_create 警告: status={status}.");
-            }
-
             ThrowIfNotOk(status, "mln_map_create");
             _map = map;
-        }        private void AttachTexture(int width, int height, double scaleFactor)
+        }
+
+        private void AttachTexture(int width, int height, double scaleFactor)
         {
 #if UNITY_IOS && !UNITY_EDITOR
-            // iOS is Metal-only (no OpenGL/EGL context provider), so it attaches via a distinct descriptor/API
-            // pair rather than another mln_opengl_context_platform case.
             mln_metal_owned_texture_descriptor metalDescriptor = NativeMethods.mln_metal_owned_texture_descriptor_default();
             metalDescriptor.extent.width = (uint)width;
             metalDescriptor.extent.height = (uint)height;
@@ -139,6 +118,7 @@ private void CreateMap(int width, int height, double scaleFactor)
             descriptor.extent.width = (uint)width;
             descriptor.extent.height = (uint)height;
             descriptor.extent.scale_factor = scaleFactor;
+            
 #if UNITY_STANDALONE_WIN || UNITY_EDITOR_WIN
             descriptor.context.platform = mln_opengl_context_platform.MLN_OPENGL_CONTEXT_PLATFORM_WGL;
             descriptor.context.data.wgl.device_context = (void*)_wglContext.DeviceContext;
@@ -146,7 +126,11 @@ private void CreateMap(int width, int height, double scaleFactor)
             descriptor.context.data.wgl.get_proc_address = null;
 #elif UNITY_ANDROID && !UNITY_EDITOR
             descriptor.context.platform = mln_opengl_context_platform.MLN_OPENGL_CONTEXT_PLATFORM_EGL;
-            descriptor.context.data.egl.size = (uint)sizeof(mln_egl_context_descriptor);
+            
+            // ★ Androidのみ存在するフィールドに安全な値を設定
+            descriptor.context.ownership = mln_opengl_context_ownership.MLN_OPENGL_CONTEXT_OWNERSHIP_SHARED;
+            descriptor.context.data.egl.client_api = mln_opengl_client_api.MLN_OPENGL_CLIENT_API_GLES;
+            
             descriptor.context.data.egl.display = (void*)_eglContext.Display;
             descriptor.context.data.egl.config = (void*)_eglContext.Config;
             descriptor.context.data.egl.share_context = (void*)_eglContext.ShareContext;
@@ -155,6 +139,10 @@ private void CreateMap(int width, int height, double scaleFactor)
 
             mln_render_session* session;
             mln_status status = NativeMethods.mln_opengl_owned_texture_attach(_map, &descriptor, &session);
+            if (status != mln_status.MLN_STATUS_OK)
+            {
+                Debug.LogError($"[DIAGNOSTIC ERROR] mln_opengl_owned_texture_attach 失敗: status={status}");
+            }
             ThrowIfNotOk(status, "mln_opengl_owned_texture_attach");
             _session = session;
 #endif
@@ -227,11 +215,6 @@ private void CreateMap(int width, int height, double scaleFactor)
             ThrowIfNotOk(status, "mln_render_session_resize");
         }
 
-        /// <summary>
-        /// Runs one iteration of the MapLibre event loop and drains all pending events for this map, following the
-        /// reference render loop: run_once -> drain events (tracking whether a repaint is needed) -> render_update
-        /// if a repaint is pending.
-        /// </summary>
         public void Step()
         {
             mln_status runStatus = NativeMethods.mln_runtime_run_once(_runtime);
@@ -250,11 +233,7 @@ private void CreateMap(int width, int height, double scaleFactor)
                 {
                     _renderPending = false;
                 }
-                else if (renderStatus == mln_status.MLN_STATUS_INVALID_STATE)
-                {
-                    // No update has arrived yet - keep renderPending set and retry on a later frame.
-                }
-                else
+                else if (renderStatus != mln_status.MLN_STATUS_INVALID_STATE)
                 {
                     Debug.LogError($"mln_render_session_render_update failed: {renderStatus}");
                 }
@@ -267,8 +246,6 @@ private void CreateMap(int width, int height, double scaleFactor)
 
             while (true)
             {
-                // The C API validates out_event->size against its own struct size before writing to it
-                // (MLN_STATUS_INVALID_ARGUMENT when out_event->size is too small), so it must be set on every call.
                 mln_runtime_event evt = default;
                 evt.size = (uint)sizeof(mln_runtime_event);
 
@@ -284,7 +261,6 @@ private void CreateMap(int width, int height, double scaleFactor)
                     break;
                 }
 
-                // Only process events that originated from this instance's map.
                 if (evt.source_type != (uint)mln_runtime_event_source_type.MLN_RUNTIME_EVENT_SOURCE_MAP || evt.source != _map)
                 {
                     continue;
@@ -307,22 +283,13 @@ private void CreateMap(int width, int height, double scaleFactor)
             }
         }
 
-        /// <summary>
-        /// Attempts to read the current frame back as premultiplied RGBA8. This uses a two-step call pattern:
-        /// first call with a null/zero-capacity buffer to obtain the required size via out_info, then call again
-        /// with a correctly-sized buffer to fetch the actual pixel data. Returns false if no frame has been
-        /// rendered yet (MLN_STATUS_INVALID_STATE).
-        /// </summary>
         public bool TryReadPixels(ref byte[] buffer, out int width, out int height, out int stride)
         {
             mln_texture_image_info info = NativeMethods.mln_texture_image_info_default();
 
-            // Step 1: query the required buffer size. This is expected to return MLN_STATUS_INVALID_ARGUMENT
-            // (capacity too small) while still populating `info` with the required byte_length and layout.
             mln_status sizeStatus = NativeMethods.mln_texture_read_premultiplied_rgba8(_session, null, 0, &info);
             if (sizeStatus == mln_status.MLN_STATUS_INVALID_STATE)
             {
-                // No frame has been produced yet.
                 width = 0;
                 height = 0;
                 stride = 0;
@@ -344,7 +311,6 @@ private void CreateMap(int width, int height, double scaleFactor)
                 buffer = new byte[requiredLength];
             }
 
-            // Step 2: fetch the actual pixel data into the correctly-sized buffer.
             fixed (byte* bufferPtr = buffer)
             {
                 mln_status readStatus = NativeMethods.mln_texture_read_premultiplied_rgba8(_session, bufferPtr, (nuint)buffer.Length, &info);

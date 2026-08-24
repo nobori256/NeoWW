@@ -525,7 +525,8 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   _mapView: {fileID: 375849030}
   _targetRawImage: {fileID: 2114798905}
-  _useLocal3DStyle: 1
+  _versionText: {fileID: 0}
+  _useLocal3DStyle: 0
   _localStyleFileName: custom_3d_style.json
   _defaultLat: 35.685175
   _defaultLon: 139.7528

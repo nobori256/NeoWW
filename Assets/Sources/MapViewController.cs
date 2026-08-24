@@ -73,12 +73,9 @@ public class MapViewController : MonoBehaviour
 		_currentZoom = _defaultZoomLevel;
 		_currentBearing = _bearing;
 		_currentPitch = _pitch;
-
-		if (_useLocal3DStyle && _mapView != null)
-		{
-			string localUrl = GetLocalStyleUrl(_localStyleFileName);
-			SetMapStyleUrl(_mapView, localUrl);
-		}
+        
+        // 注意: ここにあったローカルスタイルの適用処理は、
+        // ネイティブマップ生成後に行うため Start() に移動しました。
 	}
 
 	private void Start()
@@ -91,6 +88,14 @@ public class MapViewController : MonoBehaviour
 		if (_versionText != null) _versionText.text = $"Build: {version}";
 
 		ForceSyncNativeResolution();
+
+        // 確実なタイミング（ネイティブ生成後）でローカルスタイルを適用する
+		if (_useLocal3DStyle && _mapView != null)
+		{
+			string localUrl = GetLocalStyleUrl(_localStyleFileName);
+			SetMapStyleUrl(_mapView, localUrl);
+		}
+
 		StartCoroutine(RunMapDiagnosticTest());
 	}
 
