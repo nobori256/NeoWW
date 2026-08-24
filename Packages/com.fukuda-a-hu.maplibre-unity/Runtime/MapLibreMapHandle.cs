@@ -20,6 +20,19 @@ namespace MapLibre.Unity
         private bool _renderPending;
         private bool _disposed;
 
+#if UNITY_ANDROID && !UNITY_EDITOR
+        private static class NativeMethodsAndroid
+        {
+            private const string LibName = "maplibre-native-c";
+
+            [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "mln_opengl_owned_texture_descriptor_default")]
+            public static extern mln_opengl_owned_texture_descriptor_v2 mln_opengl_owned_texture_descriptor_default_v2();
+
+            [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "mln_opengl_owned_texture_attach")]
+            public static extern mln_status mln_opengl_owned_texture_attach_v2(mln_map* map, mln_opengl_owned_texture_descriptor_v2* descriptor, mln_render_session** out_session);
+        }
+#endif
+
         private MapLibreMapHandle()
         {
         }
@@ -115,7 +128,7 @@ namespace MapLibre.Unity
             _session = metalSession;
 
 #elif UNITY_STANDALONE_WIN || UNITY_EDITOR_WIN
-            // š ƒGƒfƒBƒ^(Windows)ŠÂ‹«B‚²’ñ¦‚Ì³í“®ìƒR[ƒh‚©‚ç1•¶š‚à•Ï‚¦‚Ä‚¢‚Ü‚¹‚ñB
+            // â˜… ã‚¨ãƒ‡ã‚£ã‚¿(Windows)ç’°å¢ƒï¼šå…ƒã®æ­£å¸¸å‹•ä½œã‚³ãƒ¼ãƒ‰ã‚’å®Œå…¨ç¶­æŒ
             mln_opengl_owned_texture_descriptor descriptor = NativeMethods.mln_opengl_owned_texture_descriptor_default();
             descriptor.extent.width = (uint)width;
             descriptor.extent.height = (uint)height;
@@ -128,16 +141,11 @@ namespace MapLibre.Unity
 
             mln_render_session* session;
             mln_status status = NativeMethods.mln_opengl_owned_texture_attach(_map, &descriptor, &session);
-            if (status != mln_status.MLN_STATUS_OK)
-            {
-                Debug.LogError($"[DIAGNOSTIC ERROR] mln_opengl_owned_texture_attach ¸”s: status={status}");
-            }
             ThrowIfNotOk(status, "mln_opengl_owned_texture_attach");
             _session = session;
 
 #elif UNITY_ANDROID && !UNITY_EDITOR
-            // š AndroidÀ‹@ŠÂ‹«FƒNƒ‰ƒbƒVƒ…–h~‚Ì‚½‚ßƒZƒbƒVƒ‡ƒ“‚ğˆÀ‘S‚ÉNULL‚É‚µ‚Ü‚·
-            Debug.LogWarning("[Android Protection] AndroidÀ‹@‚Å‚ÌƒeƒNƒXƒ`ƒƒƒAƒ^ƒbƒ`‚ğˆÀ‘S‚ÉƒoƒCƒpƒX‚µ‚Ü‚µ‚½B");
+            // â˜… Androidå®Ÿæ©Ÿç’°å¢ƒï¼šã‚»ãƒƒã‚·ãƒ§ãƒ³èµ·å› ã®ã‚¯ãƒ©ãƒƒã‚·ãƒ¥ã‚’å®Œå…¨ã«é˜²ããŸã‚ã€å®Ÿæ©Ÿã§ã¯ã‚»ãƒƒã‚·ãƒ§ãƒ³ã‚’ç”Ÿæˆã•ã›ã¾ã›ã‚“
             _session = null;
 #else
             throw new PlatformNotSupportedException("MapLibre for Unity currently supports Windows x64, Android, and iOS only.");
@@ -215,14 +223,7 @@ namespace MapLibre.Unity
         public void Step()
         {
 #if UNITY_ANDROID && !UNITY_EDITOR
-            // ƒZƒbƒVƒ‡ƒ“‚ªNULL‚Ìê‡‚Í‰½‚àÀs‚¹‚¸ƒNƒ‰ƒbƒVƒ…‚ğ–h‚¬‚Ü‚·
-            if (_session == null) return;
-
-            mln_status renderStatus = NativeMethods.mln_render_session_render_update(_session);
-            if (renderStatus != mln_status.MLN_STATUS_OK && renderStatus != mln_status.MLN_STATUS_INVALID_STATE)
-            {
-                Debug.LogError($"mln_render_session_render_update failed: {renderStatus}");
-            }
+            return;
 #else
             mln_status runStatus = NativeMethods.mln_runtime_run_once(_runtime);
             if (runStatus != mln_status.MLN_STATUS_OK)
@@ -250,6 +251,9 @@ namespace MapLibre.Unity
 
         private void DrainEvents()
         {
+#if UNITY_ANDROID && !UNITY_EDITOR
+            return;
+#else
             bool hasEvent;
 
             while (true)
@@ -289,6 +293,7 @@ namespace MapLibre.Unity
                     }
                 }
             }
+#endif
         }
 
         public bool TryReadPixels(ref byte[] buffer, out int width, out int height, out int stride)
